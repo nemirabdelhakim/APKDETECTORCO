@@ -10,104 +10,134 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Récupérer le projet
       - name: Récupérer les fichiers
         uses: actions/checkout@v4
 
+      # 2. Installer Node.js
       - name: Installer Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      # 3. Installer Java 17
       - name: Installer Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
 
+      # 4. Initialiser le SDK Android
       - name: Installer le SDK Android
         uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
 
+      # 5. Installer séparément les composants Android
+      - name: Installer les composants Android
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
+
+      # 6. Vérifier les fichiers nécessaires
       - name: Vérifier les fichiers du projet
         run: |
           test -f package.json || {
             echo "ERREUR : package.json introuvable"
             exit 1
           }
+
           test -f package-lock.json || {
             echo "ERREUR : package-lock.json introuvable"
             exit 1
           }
+
           test -f scripts/patch-android.js || {
             echo "ERREUR : scripts/patch-android.js introuvable"
             exit 1
           }
 
+      # 7. Installer les dépendances JavaScript
       - name: Installer les dépendances
         run: npm ci
 
-      - name: Vérifier la configuration Capacitor
+      # 8. Vérifier et compléter la configuration Capacitor
+      - name: Configurer Capacitor
         run: |
           node <<'NODE'
           const fs = require('fs');
 
           const file = 'capacitor.config.json';
+          const appId = 'dz.sonelgaz.poseco';
+          const appName = 'Pose CO';
 
-          if (!fs.existsSync(file)) {
+          if (fs.existsSync(file)) {
+            const config = JSON.parse(
+              fs.readFileSync(file, 'utf8')
+            );
+
+            if (!config.appId) config.appId = appId;
+            if (!config.appName) config.appName = appName;
+            if (!config.webDir) config.webDir = 'www';
+
+            fs.writeFileSync(
+              file,
+              JSON.stringify(config, null, 2) + '\n'
+            );
+          } else {
             const config = {
-              appId: 'dz.sonelgaz.poseco',
-              appName: 'Pose CO',
+              appId,
+              appName,
               webDir: 'www'
             };
 
-            fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
-            console.log('Configuration Capacitor créée.');
-          } else {
-            const config = JSON.parse(fs.readFileSync(file, 'utf8'));
-
-            if (!config.appId) {
-              config.appId = 'dz.sonelgaz.poseco';
-            }
-
-            if (!config.appName) {
-              config.appName = 'Pose CO';
-            }
-
-            fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
-            console.log('Configuration Capacitor vérifiée.');
+            fs.writeFileSync(
+              file,
+              JSON.stringify(config, null, 2) + '\n'
+            );
           }
+
+          console.log('Configuration Capacitor prête.');
           NODE
 
+      # 9. Vérifier la page web
       - name: Vérifier les fichiers web
         run: |
           if [ ! -f www/index.html ]; then
             echo "ERREUR : www/index.html introuvable."
-            echo "Adaptez webDir dans capacitor.config.json au dossier contenant index.html."
+            echo "Vérifiez le dossier contenant votre index.html."
             exit 1
           fi
 
+      # 10. Ajouter Android si nécessaire
       - name: Créer le projet Android
         run: |
           if [ ! -d android ]; then
             npx cap add android
           fi
 
+      # 11. Configurer les permissions, icônes et versions
       - name: Configurer Android
         run: node scripts/patch-android.js
 
-      - name: Synchroniser les fichiers de l'application
+      # 12. Synchroniser l'application
+      - name: Synchroniser Capacitor
         run: npx cap sync android
 
-      - name: Compiler l'APK
+      # 13. Vérifier le projet Gradle
+      - name: Vérifier Gradle
         working-directory: android
         run: |
           chmod +x gradlew
+          ./gradlew --version
+
+      # 14. Compiler l'APK Release
+      - name: Compiler l'APK
+        working-directory: android
+        run: |
           ./gradlew assembleRelease --no-daemon --stacktrace
 
+      # 15. Publier l'APK
       - name: Publier l'APK
         uses: actions/upload-artifact@v4
         with:
