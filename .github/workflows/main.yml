@@ -2,12 +2,13 @@ name: Construire l'APK Android
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   workflow_dispatch:
 
 jobs:
   apk:
     runs-on: ubuntu-latest
+
     steps:
       - name: Récupérer les fichiers
         uses: actions/checkout@v4
@@ -16,7 +17,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
 
       - name: Installer Java 17
         uses: actions/setup-java@v4
@@ -26,14 +26,77 @@ jobs:
 
       - name: Installer le SDK Android
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
+
+      - name: Vérifier les fichiers du projet
+        run: |
+          test -f package.json || {
+            echo "ERREUR : package.json introuvable"
+            exit 1
+          }
+          test -f package-lock.json || {
+            echo "ERREUR : package-lock.json introuvable"
+            exit 1
+          }
+          test -f scripts/patch-android.js || {
+            echo "ERREUR : scripts/patch-android.js introuvable"
+            exit 1
+          }
 
       - name: Installer les dépendances
         run: npm ci
 
-      - name: Créer le projet Android
-        run: npx cap add android
+      - name: Vérifier la configuration Capacitor
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
 
-      - name: Configurer (permissions, signature, icônes, version)
+          const file = 'capacitor.config.json';
+
+          if (!fs.existsSync(file)) {
+            const config = {
+              appId: 'dz.sonelgaz.poseco',
+              appName: 'Pose CO',
+              webDir: 'www'
+            };
+
+            fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+            console.log('Configuration Capacitor créée.');
+          } else {
+            const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+
+            if (!config.appId) {
+              config.appId = 'dz.sonelgaz.poseco';
+            }
+
+            if (!config.appName) {
+              config.appName = 'Pose CO';
+            }
+
+            fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+            console.log('Configuration Capacitor vérifiée.');
+          }
+          NODE
+
+      - name: Vérifier les fichiers web
+        run: |
+          if [ ! -f www/index.html ]; then
+            echo "ERREUR : www/index.html introuvable."
+            echo "Adaptez webDir dans capacitor.config.json au dossier contenant index.html."
+            exit 1
+          fi
+
+      - name: Créer le projet Android
+        run: |
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+
+      - name: Configurer Android
         run: node scripts/patch-android.js
 
       - name: Synchroniser les fichiers de l'application
@@ -43,7 +106,7 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Publier l'APK
         uses: actions/upload-artifact@v4
