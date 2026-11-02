@@ -26,6 +26,11 @@ jobs:
     - name: Install dependencies
       run: npm install
 
+    # Étape cruciale pour Capacitor / Cordova : générer le dossier android
+    - name: Add Android platform (Capacitor/Cordova)
+      run: |
+        npx cap add android || npx cordova platform add android || echo "Pas un projet Capacitor/Cordova standard"
+
     - name: Set Android SDK Home
       run: echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
 
